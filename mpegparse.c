@@ -11,7 +11,7 @@
 
 struct parseme {
 	char	*name;
-	uint32_t size;
+	ssize_t size;
 	uint32_t def;
 	uint32_t data;
 };
@@ -66,25 +66,29 @@ int parse (char *b, size_t bufsiz, struct parseme p[], uint32_t **endptr) {
 	int pad = 0;
 	int overflow = 0;
 
+	ssize_t size = 0;
+
 	size_t align =  sizeof(buf[0])*8;
 
 	for ( i = 0; p[i].name; i++) {
+		if (size < 1) size = p[i].size;
 
-		if (offset + p[i].size < align)
-			pad = align - (offset + p[i].size);
+		if (offset + size < align)
+			pad = align - (offset + size);
 		else
 			pad = 0;
 
 		p[i].data |= *buf>>pad & ~(~0<<(align - (offset + pad)));
 
-		if (offset + p[i].size > align) { /* we overflow, so offset is now 0 */
-			p[i].size -= (align - (offset + pad));
-			p[i].data = p[i].data<<(MIN(p[i].size, align));
+		if (offset + size > align) { /* we overflow, so offset is now 0 */
+			p[i].data = p[i].data<<(MIN(size, align));
+			size -= (align - (offset + pad));
 			offset = 0;
 			i--;
 		} else {
 			if (p[i].def && p[i].data != p[i].def)
 				goto err;
+			size -= (align - (offset + pad));
 			offset = pad?align-pad:0;
 		}
 
