@@ -1,77 +1,155 @@
 #include <stdio.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <stdint.h>
 #include <endian.h>
-#include "libxa1dump.h"
+#include "mpegparse.h"
 
 #define MIN(X,Y) ((X)<(Y))?(X):(Y)
 #define MAX(X,Y) ((X)>(Y))?(X):(Y)
 
-struct parseme {
-	char	*name;
-	ssize_t size;
-	uint32_t def;
-	uint32_t data;
-};
+const char _PM_EMBEDDED[] = "Embeded Parseme";
+const char _PM_EMBEDDED_A[] = "Embeded Parseme Array";
 
+int _check_zero (parseme_t p[], int i, char *buf) {
+	dprintf("checking with %s\n", __func__);
+	if (p[i].data == 0)
+		return 1;
 
-struct parseme mpeg_ps_stream_h[] =
-	{
-		{"sync", 32, 0x000001ba},
-		{"mark0", 2, 1},
-		{"scr32_30", 3, 0},
-		{"mark1", 1, 1},
-		{"scr29_15", 15, 0},
-		{"mark2", 1, 1},
-		{"scr14_0", 15, 0},
-		{"mark3", 1, 1},
-		{"scr_ext", 9, 0},
-		{"mark4", 1, 1},
-		{"pmr", 22, 0},
-		{"mark5", 2, 3},
-		{"reserved", 5, 31},
-		{"psl", 3, 0},
-		{NULL, 0, -1, 0}
-	};
+	PM_CHECK_FAIL;
+	return 0;
+}
 
-struct parseme mpeg_ps_stream_sys_h[] =
-	{
-		{"sync", 32, 0x000001bb},
-		{"header_length", 16, 0},
-		{"mark0", 1, 1},
-		{"rate_bound", 22, 0},
-		{"mark1", 1, 1},
-		{"audio_bound", 6, 0},
+int _check_range (parseme_t p[], int i, char *buf) {
+	dprintf("checking with %s\n", __func__);
+	uint16_t a = UINT32GET12(p[i].def);
+	uint16_t b = UINT32GET22(p[i].def);
+	uint32_t d = p[i].data;
 
-		{"fixed_flag", 1, 0},
-		{"CSPS_flag", 1, 0},
-		{"system_audio_lock_flag", 1, 0},
-		{"system_video_lock_flag", 1, 0},
-		{"mark2", 1, 1},
+	if (a > b)
+		SWAP(a,b);
+	if ((d < a) || (d > b)) {
+		PM_CHECK_FAIL;
+		return 0;
+	}
+	return 1;
+}
 
-		{"video_bound", 5, 0},
-		{"packet_rate_restriction_flag", 1, 0},
-		{"reserved_bits", 7, 0x7f},
-		{NULL, 0, -1, 0}
-	};
+parseme_t *_mpegparse_new (parseme_t *p, size_t nmemb) {
+	parseme_t *ret = calloc (nmemb, sizeof(*ret));
+	if (!ret)
+		return NULL;
 
-int parse (char *b, size_t bufsiz, struct parseme p[], uint32_t **endptr) {
-	int i, j;
+	memcpy (ret, p, nmemb*sizeof(*ret));
+	//	dprintf("returning %p\n", ret);
+	return ret;
+}
+
+int pm_get_key(parseme_t p[], char *key, pm_data_type *value) {
+	int i;
+
+	for ( i = 0; p[i].name; i++ ) {
+		dprintf("trying for '%s'.\n", p[i].name);
+		if (p[i].name == _PM_EMBEDDED) {
+			dprintf("trying _PM_EMBEDDED\n");
+			if (pm_get_key(_PM_EMBEDDED_GETPM(p[i]), key, value))
+				return 1;
+		}
+
+		if (strcmp (p[i].name, key) == 0) {
+			dprintf("ok for '%s'.\n", p[i].name);
+			*value = p[i].data;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
+	int i;
 	uint8_t offset = 0;
 	char *buf = b;
-	char d = *buf;
 
 	int pad = 0;
-	int overflow = 0;
-
+	int tot = 0; /* XXX(xaiki): hack */
 	ssize_t size = 0;
 
 	size_t align =  sizeof(buf[0])*8;
 
+	if (endptr)
+		*endptr = b;
+
+	/* XXX(xaiki): hack */
+	for ( i = 0; p[i].name; i++ ) {
+		dprintf("p[%d](%s).size = %d.\n", i, p[i].name, p[i].size/8);
+		tot += p[i].size/8;	/* XXX(xaiki): hack */
+		p[i].data = 0;
+	}
+
+	/* XXX(xaiki): hack */
+	if (bufsiz < tot) {
+		dprintf("invalid bufsiz = %u, need at least %u .\n", bufsiz, tot);
+		return 0; /* we don't know how much we'll need to parse this */
+	}
+
 	for ( i = 0; p[i].name; i++) {
-		if (size < 1) size = p[i].size;
+		dprintf("trying on %s (%u), %u left\n", p[i].name, size?size:p[i].size, bufsiz - (buf - b));
+		if ((p[i].name == _PM_EMBEDDED) && (p[i].check)) {
+			p[i].size = parse (buf, bufsiz - (buf - b), _PM_EMBEDDED_GETPM(p[i]), NULL);
+			if (p[i].size <= 0) {
+				dprintf("FAILED, UNHANDLED\n"); /* XXX(xaiki): handle */
+				p[i].size = 0;
+			} else {
+				//	buf += p[i].size;
+				p[i].size = 0;
+				//if (p[i+1].name)
+				//p[i+1].size -= p[i].size; /* humm, well, ok, why not ... */
+			}
+			dprintf("Returned: %d\n", p[i].size);
+			continue;
+		}
+
+		if (p[i].size == 0) {
+			dprintf("size == 0 ? probably some unhandled stuff, skip for now.\n");
+			continue;
+		} else if (p[i].size > 32) {
+			tot = p[i].size/8;
+			p[i].size = 0;
+
+			if (offset) {
+				dprintf("No offset: Not Implemeted.\n");
+				goto err_print;
+			}
+			if (p[i].def) {
+				dprintf("def '%u' checking: Not Implemeted.\n", p[i].def);
+				goto err_print;
+			}
+
+			if (p[i].check && ! p[i].check(p, i, buf))
+				goto err_print;
+
+			p[i].data = -1;
+
+			if (tot > bufsiz - (buf - b)) {
+				dprintf("Buf too small !!! %u left, and I still want to put %d ! total packet size is %d\n",
+					bufsiz - (buf - b), tot, buf - b + tot);
+#ifdef NDEBUG
+				int j;
+				for ( j = 0; p[j].name; j++)
+					if (p[j].size <= 32)
+						dprintf ("%s'%s:%u'->'%u'",  p[j].def?"*":p[j].check?"=":" ", p[j].name, p[j].size, p[j].data);
+				dprintf("\n");
+#endif
+				return -tot;
+			}
+			buf += tot;
+			continue;
+		}
+
+		if (size < 1)
+			size = p[i].size;
 
 		if (offset + size < align)
 			pad = align - (offset + size);
@@ -80,122 +158,52 @@ int parse (char *b, size_t bufsiz, struct parseme p[], uint32_t **endptr) {
 
 		p[i].data |= *buf>>pad & ~(~0<<(align - (offset + pad)));
 
-		if (offset + size > align) { /* we overflow, so offset is now 0 */
+		if (offset + size > align) { /* we overflow */
 			p[i].data = p[i].data<<(MIN(size, align));
 			size -= (align - (offset + pad));
 			offset = 0;
 			i--;
 		} else {
-			if (p[i].def && p[i].data != p[i].def)
+			if (p[i].check) {
+				if (! p[i].check(p, i, buf)) {
+					printf ("at 0x%08x, offset %ld:%d, Field '%s':'%d' couldn't be checked by '%p'.\n",
+						(unsigned int) (buf - b)*4, buf - b, offset, p[i].name, p[i].data, p[i].check);
+					goto err;
+				}
+			} else if (p[i].def && p[i].data != p[i].def) {
+				printf ("at 0x%08x, offset %ld:%d, Field '%s' should be '%02x' but is '%02x'.\n",
+					(unsigned int) (buf - b)*4, buf - b, offset, p[i].name, p[i].def, p[i].data);
+
 				goto err;
+			}
+
 			size -= (align - (offset + pad));
 			offset = pad?align-pad:0;
+			/* HACK */
+			if (p[i+1].data != 0) {
+				dprintf("WARNING !!!!! DATA NOT 0 !!!!\n");
+				p[i+1].data = 0;
+			}
 		}
 
 		if (!offset) buf++;
 	}
 
-	printf ("parsing succeded !\n");
+	dprintf ("parsing succeded !\n");
+#ifdef NDEBUG
 	for ( i = 0; p[i].name; i++)
-		printf ("%s'%s' \t-> '%u' \n",  p[i].def?"*":" ", p[i].name, p[i].data);
+		if (p[i].size <= 32)
+			dprintf ("%s'%s:%u' \t-> '%u' \n",  p[i].def?"*":p[i].check?"=":" ", p[i].name, p[i].size, p[i].data);
+#endif
 
 	if (endptr)
 		*endptr = buf;
 
-	return 1;
+	return buf - b;
 
- err: printf ("at 0x%08x, offset %d:%d, %s should be '%02x' but is '%02x'.\n",
-	      (buf - b)*4, buf - b, offset, p[i].name, p[i].def, p[i].data);
+ err_print:
+	printf ("at 0x%08x, offset %ld:%d, Field '%s' should be '%02x' but is '%02x'.\n",
+		(unsigned int)(buf - b)*4, buf - b, offset, p[i].name, p[i].def, p[i].data);
+ err:
 	return 0;
 }
-
-struct mpeg_ps_stream_header {
-	/*  0 */
-	uint32_t	sync;	/* 0x000001ba */
-	/* 32 */
-	uint8_t		mark0:6; 	/* bx01 */
-	uint8_t		scr32_30:3;
-	uint8_t		mark1:1;	/* bx1 */
-	uint16_t	scr29_15:15;
-	uint8_t		mark2:1;	/* bx1 */
-	uint16_t	scr14_0:15;
-	uint8_t		mark3:1;	/* bx1 */
-	uint16_t	scr_ext:9;
-	uint8_t		mark4:1;	/* bx1 */
-	uint32_t	pmr:22;		/* In units of 50 bytes per second */
-	uint8_t		mark5:2;	/* bx11 */
-	uint8_t		reserved:5;
-	uint8_t		psl:3;
-	char		sb[0];
-};
-
-int main (int argc, char *argv[]) {
-	int 		fd;
-	size_t		len, tot = 0;
-	uint32_t	buf[8];
-	uint32_t	*p = buf;
-	int i;
-
-	struct mpeg_ps_stream_header *psh;
-
-	if (argc < 2) {
-		perror ("Need more arguments");
-		return 0;
-	}
-
-	fd = open (argv[1], O_RDONLY);
-	if (fd == -1) {
-		perror (argv[1]);
-		return 0;
-	}
-
-	for (;(len = read (fd, buf, sizeof(buf)) != 0); tot += len) {
-		xa1_dump(p);
-		if (! parse(p, len, mpeg_ps_stream_h, &p))
-			continue;
-
-		xa1_dump(p);
-		if (! parse(p, len, mpeg_ps_stream_sys_h, &p))
-			continue;
-
-		//		psh = (struct mpeg_ps_stream_header *) buf;
-
-		/*
-		if (be32toh(psh->sync) != 0x000001ba) {
-			printf ("No valid sync code (0x%08x) at %08x.\n", be32toh(psh->sync), tot);
-			continue;
-		}
-		if (psh->mark0 != 1) {
-			printf ("maker #0 (0x%02x) is not at 1.\n", psh->mark0);
-			//			continue;
-		}
-		if (psh->mark1 != 1) {
-			printf ("maker #1 (0x%02x) is not at 1.\n", psh->mark1);
-			continue;
-		}
-		if (psh->mark2 != 1) {
-			printf ("maker #2 is not at 1.\n");
-			continue;
-		}
-		if (psh->mark3 != 1) {
-			printf ("maker #3 is not at 1.\n");
-			continue;
-		}
-		if (psh->mark4 != 1) {
-			printf ("maker #4 is not at 1.\n");
-			continue;
-		}
-		if (psh->mark5 != 4) {
-			printf ("maker #2 is not at bx11 (3).\n");
-			continue;
-		}
-		*/
-		printf ("Found valid structure at 0x%08x.\n", tot);
-		break;
-
-
-	}
-}
-
-
-

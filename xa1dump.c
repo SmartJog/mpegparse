@@ -38,8 +38,7 @@ int main (int argc, char *argv[]) {
 		}
 
 		seen = 0;
-		printf ("%08x  ", tot);
-		xa1_dump_block(buf, sizeof(buf));
+		xa1_dumpa(tot, buf);
 		tot += len;
 	}
 
