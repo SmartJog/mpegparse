@@ -2,6 +2,7 @@
 #define __MPEGPARSE_H__
 
 #include <stdint.h>
+#include <unistd.h>
 
 #ifdef NDEBUG
 #define dprintf(args...) fprintf (stderr, args);

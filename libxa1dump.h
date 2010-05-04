@@ -1,6 +1,8 @@
 #ifndef _LIBXA1_DUMP_H_
 #define _LIBXA1_DUMP_H_
 
+#include <unistd.h>
+
 #define xa1_dump(x) xa1_dump_size((char *) x, sizeof(x))
 #define xa1_dumpa(a,x)				\
 	do {					\

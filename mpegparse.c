@@ -26,7 +26,7 @@ int _check_range (parseme_t p[], int i, char *buf) {
 	dprintf("checking with %s\n", __func__);
 	uint16_t a = UINT32GET12(p[i].def);
 	uint16_t b = UINT32GET22(p[i].def);
-	uint32_t d = p[i].data;
+	pm_data_type d = p[i].data;
 
 	if (a > b)
 		SWAP(a,b);

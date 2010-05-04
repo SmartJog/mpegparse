@@ -4,6 +4,10 @@
 #include <arpa/inet.h>
 #include "mpegparse.h"
 
+#ifndef NULL
+#define NULL 0
+#endif
+
 #define xa1_debug_flv_type(data)	(data)[4]
 #define xa1_debug_flv_prev(data)	ntohl(*((uint32_t*)(data)))
 #define xa1_debug_flv_datasize(data)    ntohs(*((uint16_t*)((data) + 6)))
@@ -46,6 +50,7 @@ enum {
 
 struct parseme flv_minfo[] =
 	{
+		{"Not Implemented", 0, 0, 0},
 		{NULL}
 	};
 
