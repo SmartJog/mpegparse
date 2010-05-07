@@ -83,11 +83,11 @@ int check_type (struct parseme p[], int field, char *buf) {
 	switch (v) {
 	case 8:
 		dprintf("type is audio\n");
-		p[FLV_T_EMBEDDED].check = _PM_EMBEDDED_T(flv_ainfo);
+		_PM_EMBEDDED_EMBED (p[FLV_T_EMBEDDED], flv_ainfo);
 		break;
 	case 9:
 		dprintf("type is video\n");
-		p[FLV_T_EMBEDDED].check = _PM_EMBEDDED_T(flv_vinfo);
+		_PM_EMBEDDED_EMBED (p[FLV_T_EMBEDDED], flv_vinfo);
 		break;
 	case 18:
 		dprintf("type is metadata\n");

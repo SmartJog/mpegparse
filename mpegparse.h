@@ -1,6 +1,7 @@
 #ifndef __MPEGPARSE_H__
 #define __MPEGPARSE_H__
 
+#include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
 
@@ -34,6 +35,7 @@
 
 
 #define _PM_EMBEDDED_T(x) ((void *) (x))
+#define _PM_EMBEDDED_EMBED(k, v) ((k).check = _PM_EMBEDDED_T(v))
 #define _PM_EMBEDDED_GETPM(pi) ((parseme_t *)((pi).check))
 extern const char _PM_EMBEDDED[];
 extern const char _PM_EMBEDDED_A[];
