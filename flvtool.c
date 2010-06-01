@@ -35,6 +35,8 @@ refbuf_t *refbuf_new (size_t size) {
 refbuf_t *refbuf_realloc (refbuf_t *refbuf, size_t newsize) {
 	char *newdata;
 
+	dprintf("reallocing to %d\n", newsize);
+
 	if (!refbuf)
 		return refbuf_new (newsize);
 
@@ -54,9 +56,10 @@ void refbuf_destroy (refbuf_t *refbuf) {
 }
 
 int main (int argc, char *argv[]) {
-	int 		fd, bytes;
+	int 		fd, bytes, last = 0;
 	ssize_t		len;
-	size_t		offset = 0, readc = 0;
+	size_t		offset = 0, readc = 0, tot = 0, fill = 0;
+	struct stat	statb;
 
 	refbuf_t	*refbuf;
 	parseme_t	*h, *t;
@@ -72,6 +75,11 @@ int main (int argc, char *argv[]) {
 		return 0;
 	}
 
+	if (fstat (fd, &statb) == -1) {
+		perror (argv[1]);
+		return 0;
+	}
+
 	h = mpegparse_new (flv_header);
 	t = mpegparse_new (flv_tag);
 
@@ -82,50 +90,76 @@ int main (int argc, char *argv[]) {
 		return 0;
 	}
 
-	refbuf->len = read (fd, refbuf->data, refbuf->len); /* not really ideal */
-	bytes = parse (refbuf->data, refbuf->len, h, NULL);
+	fill = read (fd, refbuf->data, refbuf->len); /* not really ideal */
+	if (refbuf->len <= 0) {
+		perror ("couldn't read");
+		return 0;
+	}
+
+	bytes = parse (refbuf->data, fill, h, NULL);
 	if (bytes <= 0)
 		goto err_parse;
-
+	tot += bytes;
 	readc += bytes;
 
 	while (1) {
-		while ((bytes = parse(refbuf->data + readc, refbuf->len - readc, t, NULL)) > 0) {
-			if (refbuf->len - bytes - readc < FLV_TAG_SIZE) {
-				printf("buffer %d too small, bail out\n", refbuf->len - readc);
-				bytes = -bytes + FLV_TAG_SIZE;
-				break;
+		for (readc = 0; fill + readc < refbuf->len;) {
+			bytes = read (fd, refbuf->data + offset, refbuf->len);
+			if (bytes <= 0) {
+				printf ("tot(%d) + readc(%d) [%d] statb.st_size (%d)\n",
+					tot, readc, tot + readc, statb.st_size);
+				if (tot + readc >= statb.st_size) {
+					last = 1;
+					refbuf->len = readc;
+					break;
+				}
+				goto err_readc;
 			}
 			readc += bytes;
 		}
-		if  (!bytes) {
-			printf("Couldn't parse FLV Metadata at %d, %s\n",
-			       readc, refbuf->data + readc);
-			goto err_parse;
-		}
+		fill += readc;
+		xa1_dump_size (refbuf->data + readc, 8);
 
+		while ((bytes = parse(refbuf->data + readc, refbuf->len - readc, t, NULL)) > 0) {
+			pm_data_type val;
+			if (refbuf->len - bytes - readc < FLV_TAG_SIZE) {
+				xa1_dump_size (refbuf->data + readc, 8);
+				tot += bytes;
+				bytes = -bytes + FLV_TAG_SIZE;
+				break;
+			}
+
+			if (pm_get_key (t, "PreviousTagSize", &val))
+				printf ("[%d] PrviousTagSize: %d\n", tot, val);
+			xa1_dump_size (refbuf->data + readc, 8);
+
+			readc += bytes;
+			tot += bytes;
+		}
+		if  (!bytes)
+			goto err_parse;
 
 		offset = refbuf-> len - readc;
 		memmove (refbuf->data, refbuf->data + readc, offset);
-		if (bytes + refbuf->len < 0)
+		if (bytes + refbuf->len < 0 && !last) {
 			refbuf = refbuf_realloc (refbuf, -bytes + FLV_TAG_SIZE);
-
-		for (readc = 0; readc < refbuf->len;) {
-			bytes = read (fd, refbuf->data + offset, refbuf->len);
-			if (bytes)
-				readc += bytes;
-			else
-				goto err_readc;
+			fill = offset;
 		}
-		readc = 0;
+
+		printf ("[%d/%d] need %d more \n", tot, statb.st_size, -bytes);
 	}
 
  err_parse:
-	printf ("ERROR: Couldn't parse (bytes = %d)\n", bytes);
-	xa1_dump_size (refbuf->data, refbuf->len);
+	printf ("ERROR: [%d/%d] Couldn't parse (bytes = %d, readc = %d)\n", tot, statb.st_size, bytes, readc);
+	printf("[%d]", tot - 8);
+	xa1_dump_size (refbuf->data + readc -8, 8);
+	printf("[%d]", tot);
+	xa1_dump_size (refbuf->data + readc, 8);
+	printf("[%d]", tot + 8);
+	xa1_dump_size (refbuf->data + readc + 8, 8);
 	return 0; /* need to free */
 
  err_readc:
-	printf ("ERROR while reading %m\n");
+	printf ("ERROR while reading at %d/%d, read %d needed %d %m\n", tot, statb.st_size, readc, refbuf->len);
 	return 0;
 }
