@@ -5,6 +5,7 @@
 
 #include "libxa1dump.h"
 #include "mpeg.h"
+#include "ebml.h"
 
 int main (int argc, char *argv[]) {
 	int 		fd;

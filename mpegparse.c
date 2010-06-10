@@ -13,7 +13,7 @@
 const char _PM_EMBEDDED[] = "Embeded Parseme";
 const char _PM_EMBEDDED_A[] = "Embeded Parseme Array";
 
-int _check_zero (parseme_t p[], int i, char *buf) {
+int _check_zero (parseme_t p[], int i, char *buf, size_t buflen) {
 	dprintf("checking with %s\n", __func__);
 	if (p[i].data == 0)
 		return 1;
@@ -22,7 +22,7 @@ int _check_zero (parseme_t p[], int i, char *buf) {
 	return 0;
 }
 
-int _check_range (parseme_t p[], int i, char *buf) {
+int _check_range (parseme_t p[], int i, char *buf, size_t buflen) {
 	dprintf("checking with %s\n", __func__);
 	uint16_t a = UINT32GET12(p[i].def);
 	uint16_t b = UINT32GET22(p[i].def);
@@ -35,6 +35,10 @@ int _check_range (parseme_t p[], int i, char *buf) {
 		return 0;
 	}
 	return 1;
+}
+
+void mpegparse_destroy(parseme_t *p) {
+	free (p);
 }
 
 parseme_t *_mpegparse_new (parseme_t *p, size_t nmemb) {
@@ -114,7 +118,7 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 		if (p[i].size == 0) {
 			dprintf("size == 0 ? probably some unhandled stuff, skip for now.\n");
 			continue;
-		} else if (p[i].size > 32) {
+		} else if (p[i].size > sizeof(pm_data_type)*8) {
 			tot = p[i].size/8;
 			p[i].size = 0;
 
@@ -127,7 +131,7 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 				goto err_print;
 			}
 
-			if (p[i].check && ! p[i].check(p, i, buf))
+			if (p[i].check && ! p[i].check(p, i, buf, bufsiz - (buf - b)))
 				goto err_print;
 
 			p[i].data = -1;
@@ -138,7 +142,7 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 #ifdef NDEBUG
 				int j;
 				for ( j = 0; p[j].name; j++)
-					if (p[j].size <= 32)
+					if (p[j].size <= sizeof(pm_data_type)*8)
 						dprintf ("%s'%s:%u'->'%u'",  p[j].def?"*":p[j].check?"=":" ", p[j].name, p[j].size, p[j].data);
 				dprintf("\n");
 #endif
@@ -149,6 +153,7 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 		}
 
 		if (size < 1)
+		retry:
 			size = p[i].size;
 
 		if (offset + size < align)
@@ -158,6 +163,7 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 
 		p[i].data |= *buf>>pad & ~(~0<<(align - (offset + pad)));
 
+
 		if (offset + size > align) { /* we overflow */
 			p[i].data = p[i].data<<(MIN(size, align));
 			size -= (align - (offset + pad));
@@ -165,11 +171,14 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 			i--;
 		} else {
 			if (p[i].check) {
-				if (! p[i].check(p, i, buf)) {
+				int t = p[i].size;
+				if (! p[i].check(p, i, buf, bufsiz - (buf - b))) {
 					printf ("at 0x%08x, offset %ld:%d, Field '%s':'%d' couldn't be checked by '%p'.\n",
 						(unsigned int) (buf - b)*4, buf - b, offset, p[i].name, p[i].data, p[i].check);
 					goto err;
 				}
+				if (t != p[i].size) /* updated, retry */
+					goto retry;
 			} else if (p[i].def && p[i].data != p[i].def) {
 				printf ("at 0x%08x, offset %ld:%d, Field '%s' should be '%02x' but is '%02x'.\n",
 					(unsigned int) (buf - b)*4, buf - b, offset, p[i].name, p[i].def, p[i].data);
@@ -190,10 +199,10 @@ int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr) {
 	}
 
 	dprintf ("parsing succeded !\n");
-#ifdef NDEBUG
+#ifdef DEBUG
 	for ( i = 0; p[i].name; i++)
-		if (p[i].size <= 32)
-			dprintf ("%s'%s:%u' \t-> '%u' \n",  p[i].def?"*":p[i].check?"=":" ", p[i].name, p[i].size, p[i].data);
+		if (p[i].size <= sizeof(pm_data_type)*8)
+			dprintf ("%s'%s:%u' \t-> '%x' \n",  p[i].def?"*":p[i].check?"=":" ", p[i].name, p[i].size, p[i].data);
 #endif
 
 	if (endptr)

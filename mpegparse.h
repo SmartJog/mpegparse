@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#ifdef NDEBUG
+#ifdef DEBUG
 #define dprintf(args...) fprintf (stderr, args);
 #else
 #define dprintf(args...)
@@ -42,22 +42,23 @@ extern const char _PM_EMBEDDED_A[];
 
 typedef struct parseme parseme_t;
 
-#define pm_data_type uint32_t
+#define pm_data_type uint64_t
 
 struct parseme {
 	const char	*name;
 	size_t		size;
 	pm_data_type	def;
-	int		(*check) (struct parseme *p, int field, char *buf);
+	int		(*check) (struct parseme *p, int field, char *buf, size_t buflen);
 	pm_data_type 	data;
 };
 
 #define ARRAY_SIZE(p) (sizeof(p)/sizeof(p[0]))
 
 int pm_get_key(parseme_t p[], char *key, pm_data_type *value);
+void mpegparse_destroy (parseme_t *p);
 parseme_t *_mpegparse_new (parseme_t *p, size_t nmemb);
 #define mpegparse_new(p) _mpegparse_new(p, ARRAY_SIZE(p))
-int _check_zero (parseme_t p[], int i, char *buf);
-int _check_range (parseme_t p[], int i, char *buf);
+int _check_zero (parseme_t p[], int i, char *buf, size_t buflen);
+int _check_range (parseme_t p[], int i, char *buf, size_t buflen);
 int parse (char *b, size_t bufsiz, parseme_t p[], char **endptr);
 #endif /* __MPEGPARSE_H__ */

@@ -23,8 +23,6 @@
 #define xa1_BINsprintf(...) xa1_bsprintf(__VA_ARGS__)
 #define xa1_ASCsprintf(...) xa1_asprintf(__VA_ARGS__)
 
-
-
 void xa1_dump_size (char *buf, size_t bufsiz);
 char *xa1_bsprintf(char *p, char *op, size_t bufsiz);
 char *xa1_hsprintf(char *p, char *op, size_t bufsiz);
