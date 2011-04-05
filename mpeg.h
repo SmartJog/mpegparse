@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#indef __XA1_MPEG_H__
+#ifndef __XA1_MPEG_H__
 #define __XA1_MPEG_H__
 struct parseme mpeg_ps_stream_h[] =
 	{
