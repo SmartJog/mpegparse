@@ -18,4 +18,4 @@ Authors
 
 mpegparse was created at SmartJog by Niv Sardi.
 
-* Niv Sardi <xaiki@evilgiggle.com>
+* Niv Sardi <niv.sardi@smartjog.com>
